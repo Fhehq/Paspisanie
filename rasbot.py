@@ -2,10 +2,182 @@ import telebot
 from telebot import types
 import os
 from dotenv import load_dotenv, find_dotenv
+import json
 load_dotenv(find_dotenv())
 bot = telebot.TeleBot(os.getenv('TOKEN'))
+SCHEDULE_FILE = 'schedule.json'
+#==========================РАСПИСАНИЕ==========================
+def load_schedule():
+    if os.path.exists(SCHEDULE_FILE):
+        with open(SCHEDULE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        # Если файла нет, возвращаем расписание по умолчанию
+        return {
+            'mon': ['1: разговоры о важном', '2: биология', '3: литература'],
+            'tue': ['1: химия 408', '2: проектный менеджмент 407', '3: мдк разработка программного обеспечения305']
+                }
+        
+# Функция сохранения расписания в файл
+def save_schedule():
+    with open(SCHEDULE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(schedule, f, ensure_ascii=False, indent=4)
+        
+# Загружаем расписание при запуске
+schedule = load_schedule()       
+        #====СМЕНА РАСПИСНИЯ====    
+@bot.callback_query_handler(func=lambda call: call.data == 'raspis')
+def change_schedule(callback):
+    markup = types.InlineKeyboardMarkup() 
+    days = [
+        ('Понедельник чет', 'mon'),
+        ('Вторник чет', 'tue'),
+        ('Среда чет', 'wed'),
+        ('Четверг чет', 'thu'),
+        ('Пятница чет', 'fri'),
+        ('Понедельник не чет', 'nmon'),
+        ('Вторник не чет', 'ntue'),
+        ('Среда не чет', 'nwed'),
+        ('Четверг не чет', 'nthu'),
+        ('Пятница не чет', 'nfri')
+            ]
+    for day_name, day_code in days:
+        button = types.InlineKeyboardButton(text=day_name, callback_data=f'edit_{day_code}')
+        markup.add(button)
+    
+    bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
+                          text='Выберите день для изменения расписания:', reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('edit_'))
+def edit_day_schedule(callback):
+    day = callback.data.split('_')[1]  # Получаем день недели из callback_data
+    current_schedule = '\n'.join(schedule[day])  # Текущее расписание
+
+    bot.send_message(callback.message.chat.id, 
+                     f'Текущее расписание на {day}:\n{current_schedule}\n\n'
+                     'Отправьте новое расписание (каждый предмет с новой строки).')
+
+    bot.register_next_step_handler(callback.message, process_new_schedule, day)
+
+def process_new_schedule(message, day):
+    new_schedule = message.text.split('\n')
+    schedule[day] = new_schedule  # Обновляем расписание
+    save_schedule()  # Сохраняем обновленное расписание в файл
+
+    bot.send_message(message.chat.id, f'Расписание на {day} обновлено.')
 
 
+#==========================РАСПИСАНИЕ==========================
+
+
+#===========================АДМИН ПАНЕЛЬ=======================
+#===========================АДМИН ПАНЕЛЬ=======================
+#===========================АДМИН ПАНЕЛЬ=======================
+def get_admins():
+  try:
+    with open('admins.txt', 'r') as f:
+      admin_ids = [int(line.strip()) for line in f]
+    return admin_ids
+  except FileNotFoundError:
+    return []
+
+def save_admins(admin_ids):
+  with open('admins.txt', 'w') as f:
+    for admin_id in admin_ids:
+      f.write(str(admin_id) + '\n')
+
+admin_ids = get_admins() 
+
+def is_admin(message):
+  return message.from_user.id in admin_ids
+
+
+@bot.message_handler(commands=['admin'])
+def admin_menu(message):
+  if is_admin(message):
+    markup = types.InlineKeyboardMarkup()
+    adm1 = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
+    markup.add(adm1)
+    bot.send_message(message.chat.id, f"Здраствйте Администратор, {message.from_user.first_name} ",
+             reply_markup=markup)
+  else:
+    bot.send_message(message.chat.id, 'У вас нет прав доступа.')
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "admpan")
+def handle_back_button(callback):
+  markup = types.InlineKeyboardMarkup()
+  menu = types.InlineKeyboardButton(text="Главное меню", callback_data="start2")
+  admadd = types.InlineKeyboardButton(text="Добавить Админа", callback_data="admin_add")
+  admdel = types.InlineKeyboardButton(text="Удалить Админа", callback_data="delete_admin")
+  item = types.InlineKeyboardButton(text='Изменить Расписание', callback_data='raspis')
+  markup.add(menu)
+  markup.row(admadd, admdel, item)
+  bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
+             text=f'Выберите что хотите сделать', reply_markup=markup)
+
+# ----------------ДОБАВЛЕНИЕ АДМИМНА-----------  
+# ----------------ДОБАВЛЕНИЕ АДМИМНА-----------
+@bot.callback_query_handler(func=lambda call: call.data == "admin_add")
+def add_admin(call):
+  markup = types.InlineKeyboardMarkup()
+  adm12 = types.InlineKeyboardButton("Назад", callback_data="admpan")
+  markup.add(adm12)
+  bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+             text="Введите ID нового администратора:", reply_markup=markup)
+  bot.register_next_step_handler(call.message, process_new_admin_id)
+
+
+def process_new_admin_id(message):
+  global admin_ids
+  new_id = message.text.strip()
+  try:
+    new_id = int(new_id)
+    admin_ids.append(new_id)
+    save_admins(admin_ids) # Сохраняем ID в файл
+    bot.send_message(message.chat.id, f"ID {new_id} добавлен в список администраторов.")
+  except ValueError:
+    bot.send_message(message.chat.id, "Введите корректный ID.") #
+
+# ----------------ДОБАВЛЕНИЕ АДМИМНА-----------
+# ----------------ДОБАВЛЕНИЕ АДМИМНА-----------
+# ----------------УДАЛЕНИЕ АДМИМНА-------------
+# ----------------УДАЛЕНИЕ АДМИМНА-------------
+@bot.callback_query_handler(func=lambda call: call.data == "delete_admin")
+def delete_admin(call):
+  markup = types.InlineKeyboardMarkup()
+  adm12 = types.InlineKeyboardButton("Назад", callback_data="admpan")
+  markup.add(adm12)
+  bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id,
+             text=f"Введите ID администратора, которого нужно удалить:\n{admin_ids}", reply_markup=markup)
+  bot.register_next_step_handler(call.message, process_delete_admin_id)
+
+
+def process_delete_admin_id(message):
+  global admin_ids
+  try:
+    id_to_delete = int(message.text)
+    if id_to_delete == 1086906276:
+      bot.send_message(message.chat.id, f"ID {id_to_delete} Нельзя удалить.")
+    elif id_to_delete in admin_ids:
+      admin_ids.remove(id_to_delete)
+      save_admins(admin_ids)
+      bot.send_message(message.chat.id, f"ID {id_to_delete} удален из списка администраторов.")
+
+    else:
+      bot.send_message(message.chat.id, f"ID {id_to_delete} не найден в списке администраторов.")
+  except ValueError:
+    bot.send_message(message.chat.id, "Введите корректный ID.")
+
+# ----------------УДАЛЕНИЕ АДМИМНА-------------
+# ----------------УДАЛЕНИЕ АДМИМНА-------------
+#===========================АДМИН ПАНЕЛЬ=======================
+#===========================АДМИН ПАНЕЛЬ=======================
+#===========================АДМИН ПАНЕЛЬ=======================
+
+
+
+  
 @bot.message_handler(content_types=['photo'])
 def photo(message):
     bot.send_message(message.chat.id, 'Классное фото, но к сожалению я не умею принимать информацию с фото.')
@@ -19,13 +191,26 @@ def video(message):
 # Команда для старта бота
 @bot.message_handler(commands=["start"])
 def main(message):
-    markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
-    btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
-    btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
-    markup.row(btn1, btn2)
-    markup.add(btn3)
-    bot.send_message(message.chat.id,f'сап, {message.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
+    if is_admin(message):
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
+        btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
+        btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
+        adm = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
+        markup.row(btn1,btn2, btn3)
+        markup.add(adm)
+        bot.send_message(message.chat.id,f'сап, {message.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
+                     f'\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
+       
+    else:
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
+        btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
+        btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
+        adm = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
+        markup.row(btn1, btn2)
+        markup.add(btn3)
+        bot.send_message(message.chat.id,f'сап, {message.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
                      f'\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
     
 #======================================= КНОПКА ГЛАВНОЕ МЕНЮ =========================================== 
@@ -99,33 +284,150 @@ def callback(call):
 #=======================================  ЧЕТНАЯ ===========================================
 #=======================================  ЧЕТНАЯ =========================================== 
 #=======================================  ЧЕТНАЯ ===========================================                                    
-    elif call.data == 'tue':
-        markup = types.InlineKeyboardMarkup()
-        day = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
-        next = types.InlineKeyboardButton(text="▶️", callback_data="wed")
-        back = types.InlineKeyboardButton(text="◀️", callback_data="mon")        
-        markup.add(back,day,next)
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id,
-                              text=f'Вы выбрали Вторник чет. недели(Дистант):\n'
-                                     '1: химия каб. 408\n'
-                                     '2: проектный менеджмент каб. 407\n'
-                                     '3: мдк разработка программного обеспечения каб. 305\n'
-                                     '4: математика каб. 406' , reply_markup=markup)
+
     elif call.data == 'mon':
+        day = 'mon'
+        current_schedule = '\n'.join(schedule[day])
+
         markup = types.InlineKeyboardMarkup()
-        day = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
-        next = types.InlineKeyboardButton(text="▶️", callback_data="tue")
-        back = types.InlineKeyboardButton(text="◀️", callback_data="mon")        
-        markup.add(back,day,next)
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id,
-                                    text=f'Вы выбрали Понедельник чет. недели:\n'
-                                            '1: разговоры о важном\n'
-                                            '2: биология\n'
-                                            '3: литература', reply_markup=markup)
-#monday, Tuesdey, wednesday, thursday, friday
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="tue")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="mon")        
+        markup.add(back_button, day_button, next_button)
 
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Понедельник:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'tue':
+        day = 'tue'
+        current_schedule = '\n'.join(schedule[day])
 
-     
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="wed")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="mon")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Вторник:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'wed':
+        day = 'wed'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="thu")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="tue")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Среду:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'thu':
+        day = 'thu'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="fri")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="wed")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Четверг:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'fri':
+        day = 'fri'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="chet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="fri")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="tue")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Пятницу:\n{current_schedule}', 
+                            reply_markup=markup)
+#=======================================НЕ  ЧЕТНАЯ ===========================================
+#=======================================НЕ  ЧЕТНАЯ =========================================== 
+#=======================================НЕ  ЧЕТНАЯ ===========================================          
+    elif call.data == 'nmon':
+        day = 'nmon'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="nchet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="ntue")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="nmon")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Понедельник:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'ntue':
+        day = 'ntue'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="nchet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="nwed")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="nmon")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Вторник:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'nwed':
+        day = 'nwed'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="nchet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="nthu")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="ntue")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Среду:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'nthu':
+        day = 'nthu'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="nchet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="nfri")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="nwed")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Четверг:\n{current_schedule}', 
+                            reply_markup=markup)
+    elif call.data == 'nfri':
+        day = 'nfri'
+        current_schedule = '\n'.join(schedule[day])
+
+        markup = types.InlineKeyboardMarkup()
+        day_button = types.InlineKeyboardButton(text="Выбор дня", callback_data="nchet")
+        next_button = types.InlineKeyboardButton(text="▶️", callback_data="nfri")
+        back_button = types.InlineKeyboardButton(text="◀️", callback_data="ntue")        
+        markup.add(back_button, day_button, next_button)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, 
+                            message_id=call.message.id,
+                            text=f'Вы выбрали Пятницу:\n{current_schedule}', 
+                            reply_markup=markup)
 
 @bot.message_handler(func=lambda message: True)
 def none(message):
