@@ -6,6 +6,10 @@ import json
 load_dotenv(find_dotenv())
 bot = telebot.TeleBot(os.getenv('TOKEN'))
 SCHEDULE_FILE = 'schedule.json'
+
+
+    
+
 #==========================РАСПИСАНИЕ==========================
 def load_schedule():
     if os.path.exists(SCHEDULE_FILE):
@@ -107,12 +111,14 @@ def admin_menu(message):
 @bot.callback_query_handler(func=lambda call: call.data == "admpan")
 def handle_back_button(callback):
   markup = types.InlineKeyboardMarkup()
-  menu = types.InlineKeyboardButton(text="Главное меню", callback_data="start2")
+  menu = types.InlineKeyboardButton(text="Главное меню", callback_data="start")
   admadd = types.InlineKeyboardButton(text="Добавить Админа", callback_data="admin_add")
   admdel = types.InlineKeyboardButton(text="Удалить Админа", callback_data="delete_admin")
   item = types.InlineKeyboardButton(text='Изменить Расписание', callback_data='raspis')
+  spam_button = types.InlineKeyboardButton(text='Рассылка', callback_data='send_spam')
   markup.add(menu)
-  markup.row(admadd, admdel, item)
+  markup.row(admadd, admdel)
+  markup.row(item, spam_button)
   bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
              text=f'Выберите что хотите сделать', reply_markup=markup)
 
@@ -171,6 +177,23 @@ def process_delete_admin_id(message):
 
 # ----------------УДАЛЕНИЕ АДМИМНА-------------
 # ----------------УДАЛЕНИЕ АДМИМНА-------------
+@bot.callback_query_handler(func=lambda call: call.data == "send_spam")
+def send_spam(callback):
+    msg = bot.send_message(callback.message.chat.id, "Введите текст для рассылки:")
+    bot.register_next_step_handler(msg, process_spam_text)
+
+def process_spam_text(message):
+    spam_text = message.text
+    if spam_text:
+        users = get_users()
+        for user_id in users:
+            try:
+                bot.send_message(user_id, spam_text)
+            except Exception as e:
+                print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
+        bot.send_message(message.chat.id, "Рассылка завершена.")
+    else:
+        bot.send_message(message.chat.id, "Сообщение не может быть пустым.")
 #===========================АДМИН ПАНЕЛЬ=======================
 #===========================АДМИН ПАНЕЛЬ=======================
 #===========================АДМИН ПАНЕЛЬ=======================
@@ -191,42 +214,93 @@ def video(message):
 # Команда для старта бота
 @bot.message_handler(commands=["start"])
 def main(message):
+    users = get_users()  # Получаем текущих пользователей из переменной окружения
+    
+    # Проверяем, есть ли пользователь в списке
+    if message.chat.id not in users:
+        users.add(message.chat.id)  # Добавляем нового пользователя
+        save_users(users)  # Сохраняем обновлённый список пользователей
+
+    
+    # Остальной код для отображения кнопок и работы с расписанием
     if is_admin(message):
         markup = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
         btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
         btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
         adm = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
-        markup.row(btn1,btn2, btn3)
+        markup.row(btn1, btn2, btn3)
         markup.add(adm)
-        bot.send_message(message.chat.id,f'сап, {message.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
-                     f'\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
-       
+        bot.send_message(message.chat.id, f'Сап, {message.from_user.first_name}, чтобы посмотреть расписание, выбери неделю\n'
+                                          f'Для просмотра звонков нажми на кнопку', reply_markup=markup)
     else:
         markup = types.InlineKeyboardMarkup()
         btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
         btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
         btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
-        adm = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
         markup.row(btn1, btn2)
         markup.add(btn3)
-        bot.send_message(message.chat.id,f'сап, {message.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
-                     f'\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
+        bot.send_message(message.chat.id, f'Сап, {message.from_user.first_name}, чтобы посмотреть расписание, выбери неделю\n'
+                                          f'Для просмотра звонков нажми на кнопку', reply_markup=markup)
+
+def get_users():
+    users_str = os.getenv('BOT_USERS', '')
+    if users_str:
+        return set(map(int, users_str.split(',')))
+    return set()
+
+def save_users(users):
+    users_str = ','.join(map(str, users))
+    # Обновляем переменную окружения для текущего выполнения
+    os.environ['BOT_USERS'] = users_str
     
+    # Загружаем текущие данные из .env для дальнейшего обновления
+    dotenv_path = find_dotenv()
+    with open(dotenv_path, 'r') as env_file:
+        env_lines = env_file.readlines()
+    
+    # Перезаписываем данные в файле .env
+    with open(dotenv_path, 'w') as env_file:
+        for line in env_lines:
+            # Обновляем только строку с BOT_USERS, остальные оставляем без изменений
+            if line.startswith('BOT_USERS='):
+                env_file.write(f'BOT_USERS={users_str}\n')
+            else:
+                env_file.write(line)
+
+@bot.message_handler(func=lambda message: True)
+def track_users(message):
+    users = get_users()
+    if message.chat.id not in users:
+        users.add(message.chat.id)
+        save_users(users) 
 #======================================= КНОПКА ГЛАВНОЕ МЕНЮ =========================================== 
 #======================================= КНОПКА ГЛАВНОЕ МЕНЮ =========================================== 
 #======================================= КНОПКА ГЛАВНОЕ МЕНЮ =========================================== 
 @bot.callback_query_handler(func=lambda call: call.data == "start")
 def handle_back_button(callback):
-    markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
-    btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
-    btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
-    markup.row(btn1, btn2)
-    markup.add(btn3)
-    bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
+    if is_admin(callback.message):
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
+        btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
+        btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
+        adm = types.InlineKeyboardButton("Админ панель", callback_data="admpan")
+        markup.row(btn1, btn2, btn3)
+        markup.add(adm)
+        bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
                           text=f'сап, {callback.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
                                 '\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
+    else:    
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton('Четная', callback_data='chet')
+        btn2 = types.InlineKeyboardButton('Не четная', callback_data='nchet')
+        btn3 = types.InlineKeyboardButton('Звонки', callback_data='zvonki')
+        markup.row(btn1, btn2)
+        markup.add(btn3)
+        bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
+                            text=f'сап, {callback.from_user.first_name}, чтобы посмотреть рассписание выбери неделю'
+                                  '\nДля просмотра звоноков нажми на кнопку', reply_markup=markup)
+
 
     
 
@@ -238,12 +312,13 @@ def callback(call):
     if call.data == 'chet':
         markup = types.InlineKeyboardMarkup()
         back = types.InlineKeyboardButton(text="Главное меню", callback_data="start")
-        monday = types.InlineKeyboardButton(text="Пон-к", callback_data="mon")
+        monday = types.InlineKeyboardButton(text="Понедельник", callback_data="mon")
         Tuesdey = types.InlineKeyboardButton(text="Вторник", callback_data="tue")
         wednesday = types.InlineKeyboardButton(text="Среда", callback_data="wed")
         thursday = types.InlineKeyboardButton(text="Четверг", callback_data="thu")
         friday = types.InlineKeyboardButton(text="Пятница", callback_data="fri")    
-        markup.row(monday, Tuesdey, wednesday, thursday, friday  )        
+        markup.row(monday, Tuesdey)  
+        markup.row(wednesday, thursday, friday)         
         markup.add(back)
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id,
                               text=f'Вы выбрали четную неделю\nТеперь выберете день',
@@ -251,12 +326,13 @@ def callback(call):
     elif call.data == 'nchet':
         markup = types.InlineKeyboardMarkup()
         back = types.InlineKeyboardButton(text="Главное меню", callback_data="start")
-        monday = types.InlineKeyboardButton(text="Пон-к", callback_data="nmon")
+        monday = types.InlineKeyboardButton(text="Понедельник", callback_data="nmon")
         Tuesdey = types.InlineKeyboardButton(text="Вторник", callback_data="ntue")
         wednesday = types.InlineKeyboardButton(text="Среда", callback_data="nwed")
         thursday = types.InlineKeyboardButton(text="Четверг", callback_data="nthu")
         friday = types.InlineKeyboardButton(text="Пятница", callback_data="nfri")    
-        markup.row(monday, Tuesdey, wednesday, thursday, friday)        
+        markup.row(monday, Tuesdey)
+        markup.row(wednesday, thursday, friday)        
         markup.add(back)
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.id,
                               text=f'Вы выбрали не четную неделю\nТеперь выберете день',
