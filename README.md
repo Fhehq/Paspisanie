@@ -1,1 +1,1 @@
-# Paspisanie
+Измените данные в .env, schedule.json и admins.txt

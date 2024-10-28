@@ -135,8 +135,8 @@ def show_user_count(callback):
     adm13 = types.InlineKeyboardButton("Их ID", callback_data="idusers")
     markup.row(adm12)
     markup.add(adm13)
-    users = get_users()  # Получаем список пользователей
-    user_count = len(users)  # Считаем количество пользователей
+    users = get_users()
+    user_count = len(users)
     bot.send_message(callback.message.chat.id, f"Количество пользователей: {user_count}", reply_markup=markup)
     
 @bot.callback_query_handler(func=lambda call: call.data == "idusers")
@@ -144,8 +144,8 @@ def show_user_count(callback):
     markup = types.InlineKeyboardMarkup()
     adm12 = types.InlineKeyboardButton("Назад", callback_data="user_count")
     markup.add(adm12)
-    users = get_users()  # Получаем список пользователей
-    user_count =users # Считаем количество пользователей
+    users = get_users()
+    user_count =users
     bot.send_message(callback.message.chat.id, f"Их ID:\n{user_count}", reply_markup=markup)
 
 # ----------------ДОБАВЛЕНИЕ АДМИМНА-----------  
