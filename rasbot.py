@@ -6,7 +6,7 @@ import json
 load_dotenv(find_dotenv())
 bot = telebot.TeleBot(os.getenv('TOKEN'))
 SCHEDULE_FILE = 'schedule.json'
-
+USERS_FILE = 'users.data'
 
     
 
@@ -47,7 +47,10 @@ def change_schedule(callback):
             ]
     for day_name, day_code in days:
         button = types.InlineKeyboardButton(text=day_name, callback_data=f'edit_{day_code}')
+        adm = types.InlineKeyboardButton(text='Назад', callback_data="admpan")
         markup.add(button)
+        markup.row(adm)
+        
     
     bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
                           text='Выберите день для изменения расписания:', reply_markup=markup)
@@ -115,12 +118,35 @@ def handle_back_button(callback):
   admadd = types.InlineKeyboardButton(text="Добавить Админа", callback_data="admin_add")
   admdel = types.InlineKeyboardButton(text="Удалить Админа", callback_data="delete_admin")
   item = types.InlineKeyboardButton(text='Изменить Расписание', callback_data='raspis')
-  spam_button = types.InlineKeyboardButton(text='Рассылка', callback_data='send_spam')
-  markup.add(menu)
+  spam_button = types.InlineKeyboardButton(text='Рассылка', callback_data='send_spam')  
+  user_count_button = types.InlineKeyboardButton(text='Количество пользователей', callback_data='user_count')
   markup.row(admadd, admdel)
   markup.row(item, spam_button)
+  markup.row(user_count_button)
+  markup.add(menu)
   bot.edit_message_text(chat_id=callback.message.chat.id, message_id=callback.message.id,
              text=f'Выберите что хотите сделать', reply_markup=markup)
+  
+  
+@bot.callback_query_handler(func=lambda call: call.data == "user_count")
+def show_user_count(callback):
+    markup = types.InlineKeyboardMarkup()
+    adm12 = types.InlineKeyboardButton("Назад", callback_data="admpan")
+    adm13 = types.InlineKeyboardButton("Их ID", callback_data="idusers")
+    markup.row(adm12)
+    markup.add(adm13)
+    users = get_users()  # Получаем список пользователей
+    user_count = len(users)  # Считаем количество пользователей
+    bot.send_message(callback.message.chat.id, f"Количество пользователей: {user_count}", reply_markup=markup)
+    
+@bot.callback_query_handler(func=lambda call: call.data == "idusers")
+def show_user_count(callback):
+    markup = types.InlineKeyboardMarkup()
+    adm12 = types.InlineKeyboardButton("Назад", callback_data="user_count")
+    markup.add(adm12)
+    users = get_users()  # Получаем список пользователей
+    user_count =users # Считаем количество пользователей
+    bot.send_message(callback.message.chat.id, f"Их ID:\n{user_count}", reply_markup=markup)
 
 # ----------------ДОБАВЛЕНИЕ АДМИМНА-----------  
 # ----------------ДОБАВЛЕНИЕ АДМИМНА-----------
@@ -177,23 +203,55 @@ def process_delete_admin_id(message):
 
 # ----------------УДАЛЕНИЕ АДМИМНА-------------
 # ----------------УДАЛЕНИЕ АДМИМНА-------------
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
 @bot.callback_query_handler(func=lambda call: call.data == "send_spam")
 def send_spam(callback):
-    msg = bot.send_message(callback.message.chat.id, "Введите текст для рассылки:")
+    global is_spam_cancelled
+    is_spam_cancelled = False  # Сбрасываем статус отмены перед началом новой рассылки
+    
+    markup = types.InlineKeyboardMarkup()
+    cancel_button = types.InlineKeyboardButton("Отменить рассылку", callback_data="cancel_spam")
+    markup.add(cancel_button)
+    
+    msg = bot.send_message(callback.message.chat.id, "Введите текст для рассылки:", reply_markup=markup)
     bot.register_next_step_handler(msg, process_spam_text)
 
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_spam")
+def cancel_spam(call):
+    global is_spam_cancelled
+    is_spam_cancelled = True  # Устанавливаем флаг отмены рассылки
+    markup = types.InlineKeyboardMarkup()
+    admmen = types.InlineKeyboardButton("Админ Меню", callback_data="admpan")
+    markup.add(admmen)
+    bot.send_message(call.message.chat.id, "Рассылка отменена.", reply_markup=markup)
+
 def process_spam_text(message):
+    global is_spam_cancelled
+    
     spam_text = message.text
     if spam_text:
         users = get_users()
         for user_id in users:
+            if is_spam_cancelled:
+                markup = types.InlineKeyboardMarkup()
+                admmen = types.InlineKeyboardButton("Админ Меню", callback_data="admpan")
+                markup.add(admmen)
+                bot.send_message(message.chat.id, "Рассылка была отменена.", reply_markup=markup)
+                break  # Прекращаем рассылку при отмене
             try:
                 bot.send_message(user_id, spam_text)
             except Exception as e:
                 print(f"Не удалось отправить сообщение пользователю {user_id}: {e}")
-        bot.send_message(message.chat.id, "Рассылка завершена.")
+        else:
+            if not is_spam_cancelled:
+                bot.send_message(message.chat.id, "Рассылка завершена.")
     else:
         bot.send_message(message.chat.id, "Сообщение не может быть пустым.")
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
+#======СПАМ=====СПАМ=====СПАМ======СПАМ=======СПАМ
 #===========================АДМИН ПАНЕЛЬ=======================
 #===========================АДМИН ПАНЕЛЬ=======================
 #===========================АДМИН ПАНЕЛЬ=======================
@@ -215,11 +273,10 @@ def video(message):
 @bot.message_handler(commands=["start"])
 def main(message):
     users = get_users()  # Получаем текущих пользователей из переменной окружения
-    
-    # Проверяем, есть ли пользователь в списке
     if message.chat.id not in users:
         users.add(message.chat.id)  # Добавляем нового пользователя
         save_users(users)  # Сохраняем обновлённый список пользователей
+
 
     
     # Остальной код для отображения кнопок и работы с расписанием
@@ -244,29 +301,15 @@ def main(message):
                                           f'Для просмотра звонков нажми на кнопку', reply_markup=markup)
 
 def get_users():
-    users_str = os.getenv('BOT_USERS', '')
-    if users_str:
-        return set(map(int, users_str.split(',')))
-    return set()
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return set(json.load(f))  # Загружаем данные и конвертируем в множество
+    return set()  # Если файла нет, возвращаем пустое множество
 
 def save_users(users):
-    users_str = ','.join(map(str, users))
-    # Обновляем переменную окружения для текущего выполнения
-    os.environ['BOT_USERS'] = users_str
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(list(users), f, ensure_ascii=False, indent=4)  # Преобразуем множество в список перед сохранением
     
-    # Загружаем текущие данные из .env для дальнейшего обновления
-    dotenv_path = find_dotenv()
-    with open(dotenv_path, 'r') as env_file:
-        env_lines = env_file.readlines()
-    
-    # Перезаписываем данные в файле .env
-    with open(dotenv_path, 'w') as env_file:
-        for line in env_lines:
-            # Обновляем только строку с BOT_USERS, остальные оставляем без изменений
-            if line.startswith('BOT_USERS='):
-                env_file.write(f'BOT_USERS={users_str}\n')
-            else:
-                env_file.write(line)
 
 @bot.message_handler(func=lambda message: True)
 def track_users(message):
